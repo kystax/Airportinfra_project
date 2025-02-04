@@ -1,0 +1,43 @@
+version: 0.2
+
+env:
+  variables:
+    AppS3Bucket: "s3-bucket-cloud-formation"
+    RDSInstanceId: "rds-instance"
+    EC2InstanceId: "i-0887030366a36a11a" # Replace with your actual EC2 instance ID
+
+phases:
+  install:
+    runtime-versions:
+      nodejs: 20
+    commands:
+      - npm install
+
+  build:
+    commands:
+      - zip -r lambda-package.zip ./ -x buildspec.yml
+      - echo "Build completed"
+
+  post_build:
+    commands:
+      # Upload Lambda package to S3
+      - aws s3 cp lambda-package.zip s3://$AppS3Bucket/lambda-package.zip
+
+      # Update Lambda function
+      - aws lambda update-function-code --function-name airport_lambda_code_build_function --s3-bucket $AppS3Bucket --s3-key "lambda-package.zip"
+      - sleep 10
+      - aws lambda update-function-configuration --function-name airport_lambda_code_build_function --handler lambda.handler
+
+      # Start EC2 instance (if stopped)
+      - aws ec2 start-instances --instance-ids $EC2InstanceId
+
+      # Check RDS status
+      - aws rds describe-db-instances --db-instance-identifier $RDSInstanceId --query "DBInstances[0].DBInstanceStatus"
+
+      # Upload a sample file to S3
+      - echo "Sample data" > sample.txt
+      - aws s3 cp sample.txt s3://$AppS3Bucket/sample.txt
+
+artifacts:
+  files:
+    - lambda-package.zip
